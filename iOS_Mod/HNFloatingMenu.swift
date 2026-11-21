@@ -9,6 +9,7 @@ import UIKit
 private func hnmod_bootstrap_anchor()
 
 /// Window đặc biệt tự động cho phép touch xuyên qua (pass-through) trừ những view con trực tiếp có tương tác
+@objc(HNPassThroughWindow)
 public final class HNPassThroughWindow: UIWindow {
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
@@ -46,6 +47,7 @@ public class HNFloatingMenu: UIView {
 
     private var floatingButton: UIButton!
     private var overlayWindow: HNPassThroughWindow?
+    private var isRetryingAttach = false
 
     /// Đã đặt vị trí mặc định lần đầu chưa (tránh reset vị trí user đã kéo)
     private var hasPlacedInitially = false
@@ -56,7 +58,9 @@ public class HNFloatingMenu: UIView {
         super.init(frame: CGRect(x: width - 60, y: 150, width: 44, height: 44))
         setupFloatingButton()
         observeWindowChanges()
-        attachToWindow()   // gắn ngay khi khởi tạo, không chờ notification
+        DispatchQueue.main.async { [weak self] in
+            self?.attachToWindow()
+        }
     }
 
     private func observeWindowChanges() {
@@ -96,7 +100,7 @@ public class HNFloatingMenu: UIView {
 
     private func setupFloatingButton() {
         let savedOpacity = UserDefaults.standard.object(forKey: Self.iconOpacityKey) as? Double ?? 1.0
-        alpha = CGFloat(savedOpacity)
+        alpha = CGFloat(max(0.1, savedOpacity))
         self.layer.cornerRadius = 22
         self.layer.shadowColor = UIColor.black.cgColor
         self.layer.shadowOpacity = 0.3
@@ -156,30 +160,38 @@ public class HNFloatingMenu: UIView {
         if let last = candidates.last { return last }
 
         // Fallback cho app không dùng UIScene
-        let legacy = UIApplication.shared.windows.filter { $0 !== overlayWindow && !$0.isHidden && $0.windowLevel == .normal }
+        let legacy = UIApplication.shared.windows.filter { $0 !== overlayWindow && !$0.isHidden && $0.windowLevel == .normal && $0.rootViewController != nil }
         return legacy.first(where: { $0.isKeyWindow })
             ?? legacy.last
             ?? sceneWindows.last
-            ?? UIApplication.shared.windows.first(where: { $0 !== overlayWindow })
+            ?? UIApplication.shared.windows.first(where: { $0 !== overlayWindow && $0.rootViewController != nil })
     }
 
     private func doAttach() {
-        let targetScene: UIWindowScene?
+        guard Thread.isMainThread else { return }
+
+        guard let appWindow = findAppWindow() else {
+            guard !isRetryingAttach else { return }
+            isRetryingAttach = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                self.isRetryingAttach = false
+                self.doAttach()
+            }
+            return
+        }
+
+        var scene: UIWindowScene? = nil
         if #available(iOS 13.0, *) {
-            targetScene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
-                ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        } else {
-            targetScene = nil
+            scene = appWindow.windowScene
         }
 
         if overlayWindow == nil {
             let win: HNPassThroughWindow
-            if #available(iOS 13.0, *), let scene = targetScene {
-                win = HNPassThroughWindow(windowScene: scene)
+            if #available(iOS 13.0, *), let targetScene = scene {
+                win = HNPassThroughWindow(windowScene: targetScene)
             } else {
-                win = HNPassThroughWindow(frame: UIScreen.main.bounds)
+                win = HNPassThroughWindow(frame: appWindow.bounds)
             }
             win.windowLevel = UIWindow.Level.statusBar + 100
             win.backgroundColor = .clear
@@ -193,8 +205,8 @@ public class HNFloatingMenu: UIView {
             win.isHidden = false
             self.overlayWindow = win
         } else {
-            if #available(iOS 13.0, *), let scene = targetScene, overlayWindow?.windowScene !== scene {
-                overlayWindow?.windowScene = scene
+            if #available(iOS 13.0, *), let targetScene = scene, overlayWindow?.windowScene !== targetScene {
+                overlayWindow?.windowScene = targetScene
             }
             overlayWindow?.isHidden = false
         }
@@ -202,7 +214,7 @@ public class HNFloatingMenu: UIView {
         if let win = overlayWindow {
             win.rootViewController?.view.bringSubviewToFront(self)
             if !hasPlacedInitially || self.frame.origin == .zero {
-                let winWidth = win.bounds.width > 0 ? win.bounds.width : UIScreen.main.bounds.width
+                let winWidth = win.bounds.width > 0 ? win.bounds.width : appWindow.bounds.width
                 self.frame.origin = CGPoint(x: max(10, winWidth - 60), y: 150)
                 hasPlacedInitially = true
             } else {
