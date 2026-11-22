@@ -181,13 +181,13 @@ public class HNFloatingMenu: UIView {
     }
 
     private func locationMenuTitle() -> String {
-        return "Lưu Vị Trí Hiện Tại 🎯"
+        return "Lưu Vị Trí 🎯"
     }
 
     private func showQuickMenu() {
         guard let topVC = getTopViewController() else { return }
 
-        let alert = UIAlertController(title: "HN MOD", message: nil, preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: "NeuOSX", message: nil, preferredStyle: .actionSheet)
         applyFuturaFont(to: alert)
 
         let fakeCallTitle = HNURLProtocol.isFakeCallEnabled ? "Fake Call ✅" : "Fake Call ❌"
@@ -208,7 +208,7 @@ public class HNFloatingMenu: UIView {
             HNLocationHook.shared.captureAndSaveCurrentLocation(from: top)
         })
 
-        alert.addAction(menuAction(title: "Nhập Tọa Độ Thủ Công 📍", style: .default) { [weak self] _ in
+        alert.addAction(menuAction(title: "Nhập Tọa Độ 📍", style: .default) { [weak self] _ in
             self?.showManualCoordinateInput()
         })
 
@@ -231,7 +231,7 @@ public class HNFloatingMenu: UIView {
             self?.showFakeCallHistoryInputDialog()
         })
 
-        alert.addAction(menuAction(title: "Chấm Công Vào (Check-in) ⏰", style: .default) { [weak self] _ in
+        alert.addAction(menuAction(title: "Chấm Công Vào ⏰", style: .default) { [weak self] _ in
             guard let top = self?.getTopViewController() else { return }
             HNAttendanceHook.performAutomaticClock(clockType: 1) { success, msg in
                 let alertResult = UIAlertController(title: success ? "Chấm Công Thành Công ✅" : "Chấm Công Thất Bại ❌", message: msg, preferredStyle: .alert)
@@ -240,7 +240,7 @@ public class HNFloatingMenu: UIView {
             }
         })
 
-        alert.addAction(menuAction(title: "Chấm Công Ra (Check-out) ⏰", style: .default) { [weak self] _ in
+        alert.addAction(menuAction(title: "Chấm Công Ra ⏰", style: .default) { [weak self] _ in
             guard let top = self?.getTopViewController() else { return }
             HNAttendanceHook.performAutomaticClock(clockType: 2) { success, msg in
                 let alertResult = UIAlertController(title: success ? "Chấm Công Thành Công ✅" : "Chấm Công Thất Bại ❌", message: msg, preferredStyle: .alert)
@@ -249,7 +249,7 @@ public class HNFloatingMenu: UIView {
             }
         })
 
-        alert.addAction(menuAction(title: "Chọn ảnh khuôn mặt chấm công 👤", style: .default) { [weak self] _ in
+        alert.addAction(menuAction(title: "Ảnh Chấm Công 👤", style: .default) { [weak self] _ in
             guard let top = self?.getTopViewController() else { return }
             HNPickerHelper.showPicker(in: top) { image in
                 if let img = image {

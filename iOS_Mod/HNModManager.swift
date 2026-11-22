@@ -13,6 +13,7 @@ public final class HNModManager: NSObject {
         DispatchQueue.main.async {
             guard !hasStarted else { return }
             hasStarted = true
+            HNFontManager.install()
             HNLocationHook.install()
             HNURLProtocol.startIntercepting()
             HNPresentHook.install()
