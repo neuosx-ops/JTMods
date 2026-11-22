@@ -285,7 +285,7 @@ public class HNFloatingMenu: UIView {
     private func showThemeMenu() {
         guard let topVC = getTopViewController() else { return }
         let alert = UIAlertController(title: "Giao diện", message: nil, preferredStyle: .actionSheet)
-        applyFuturaFont(to: alert)
+        applyHarmonyOSFont(to: alert)
 
         for mode in HNThemeMode.allCases {
             let title = mode.title + (HNThemeManager.mode == mode ? " ✓" : "")
@@ -354,7 +354,7 @@ public class HNFloatingMenu: UIView {
     private func showIconOpacityMenu() {
         guard let topVC = getTopViewController() else { return }
         let alert = UIAlertController(title: "Blur Icon", message: nil, preferredStyle: .actionSheet)
-        applyFuturaFont(to: alert)
+        applyHarmonyOSFont(to: alert)
 
         let options: [(title: String, opacity: Double)] = [
             ("2%", 0.02),
