@@ -1888,7 +1888,7 @@ extension HNJTSheetHook {
         host.present(sheet, animated: true)
     }
 
-    /// Trước khi dựng QR gộp: chốt danh sách đơn bằng cache cục bộ (tối ưu tốc độ tức thì).
+    /// Dựng QR thanh toán chỉ cho đúng đơn đang chọn (không tự động gộp các đơn khác của cùng SĐT).
     private static func sendViaZalo(phone: String,
                                     waybillNo: String,
                                     orders: [(waybillNo: String, amountText: String, goodsName: String)],
@@ -1902,18 +1902,13 @@ extension HNJTSheetHook {
             return true
         }
 
-        // 1) Gộp ứng viên từ thẻ đang mở, batch gần nhất và cache đơn chưa ký cùng SĐT.
         var candidates = orders
-        if let group = workflow.recentBatchGroupOrders(containing: waybillNo) {
-            candidates = group.map { (waybillNo: $0.waybillNo, amountText: $0.amountText, goodsName: $0.goodsName) }
-            HNLog.write("Zalo QR: ứng viên từ thẻ gộp \(candidates.count) đơn")
+        if candidates.isEmpty, !waybillNo.isEmpty {
+            let cachedTarget = workflow.cachedOrderInfo(forWaybill: waybillNo)
+            let amount = cachedTarget?.codAmount ?? workflow.currentCodAmount
+            let goods = cachedTarget?.goodsName ?? ""
+            candidates = [(waybillNo: waybillNo, amountText: amount, goodsName: goods)]
         }
-
-        let customerPhone = workflow.currentPhoneNumber.isEmpty ? phone : workflow.currentPhoneNumber
-        let cachedCustomerOrders = workflow.findAllCachedOrders(fullPhone: customerPhone)
-        candidates.append(contentsOf: cachedCustomerOrders.map {
-            (waybillNo: $0.waybillId, amountText: $0.codAmount, goodsName: $0.goodsName)
-        })
 
         var seenWaybills = Set<String>()
         candidates = candidates.compactMap { order in
@@ -1924,35 +1919,18 @@ extension HNJTSheetHook {
             return (waybillNo: wb, amountText: order.amountText, goodsName: order.goodsName)
         }
 
-        // If no pending customer orders are cached, keep the current order only when it is not known signed.
-        if candidates.isEmpty, !waybillNo.isEmpty,
-           workflow.cachedSignedStatus(forWaybill: waybillNo) != true {
-            let cachedTarget = workflow.cachedOrderInfo(forWaybill: waybillNo)
-            candidates = [(
-                waybillNo: waybillNo,
-                amountText: cachedTarget?.codAmount ?? workflow.currentCodAmount,
-                goodsName: cachedTarget?.goodsName ?? ""
-            )]
-        }
-
         if candidates.isEmpty, retryLastQR() { return }
 
         guard !candidates.isEmpty else {
-            showZaloSendError("Không còn đơn COD chưa ký của khách này để tạo QR.")
+            showZaloSendError("Không tìm thấy thông tin đơn hàng để tạo QR.")
             return
         }
 
         let kept = candidates.filter { workflow.cachedSignedStatus(forWaybill: $0.waybillNo) != true }
         guard !kept.isEmpty else {
             if retryLastQR() { return }
-            showZaloSendError("Các đơn của khách đã ký nhận; không tạo QR thanh toán.")
+            showZaloSendError("Đơn hàng này đã ký nhận; không tạo QR thanh toán.")
             return
-        }
-
-        // Đồng bộ ngầm trạng thái đơn ở background để làm mới cache cho lần sau (không làm chậm luồng chính)
-        let candidateWaybills = candidates.map { $0.waybillNo }
-        DispatchQueue.global().async {
-            workflow.fetchSignedStatus(waybills: candidateWaybills) { _ in }
         }
 
         performSendViaZalo(phone: phone, waybillNo: waybillNo, orders: kept, from: vc)

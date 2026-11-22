@@ -237,6 +237,40 @@ public class HNFloatingMenu: UIView {
             self?.showFakeCallHistoryInputDialog()
         })
 
+        alert.addAction(menuAction(title: "Chấm Công Vào (Check-in) ⏰", style: .default) { [weak self] _ in
+            guard let top = self?.getTopViewController() else { return }
+            HNAttendanceHook.performAutomaticClock(clockType: 1) { success, msg in
+                let alertResult = UIAlertController(title: success ? "Chấm Công Thành Công ✅" : "Chấm Công Thất Bại ❌", message: msg, preferredStyle: .alert)
+                alertResult.addAction(UIAlertAction(title: "OK", style: .default))
+                top.present(alertResult, animated: true)
+            }
+        })
+
+        alert.addAction(menuAction(title: "Chấm Công Ra (Check-out) ⏰", style: .default) { [weak self] _ in
+            guard let top = self?.getTopViewController() else { return }
+            HNAttendanceHook.performAutomaticClock(clockType: 2) { success, msg in
+                let alertResult = UIAlertController(title: success ? "Chấm Công Thành Công ✅" : "Chấm Công Thất Bại ❌", message: msg, preferredStyle: .alert)
+                alertResult.addAction(UIAlertAction(title: "OK", style: .default))
+                top.present(alertResult, animated: true)
+            }
+        })
+
+        alert.addAction(menuAction(title: "Chọn ảnh khuôn mặt chấm công 👤", style: .default) { [weak self] _ in
+            guard let top = self?.getTopViewController() else { return }
+            HNPickerHelper.showPicker(in: top) { image in
+                if let img = image {
+                    HNAttendanceHook.saveFacePhoto(img)
+                    let successAlert = UIAlertController(title: "Đã Lưu Ảnh Chấm Công ✅", message: "Ảnh khuôn mặt đã được lưu để dùng cho các lần chấm công tự động.", preferredStyle: .alert)
+                    successAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                    top.present(successAlert, animated: true)
+                } else {
+                    let errAlert = UIAlertController(title: "Chưa chọn ảnh", message: "Không có ảnh nào được chọn.", preferredStyle: .alert)
+                    errAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                    top.present(errAlert, animated: true)
+                }
+            }
+        })
+
         alert.addAction(menuAction(title: "Config STK 🛠️", style: .default) { [weak self] _ in
             self?.showBankConfigDialog()
         })
