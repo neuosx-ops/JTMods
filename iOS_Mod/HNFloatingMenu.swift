@@ -186,147 +186,35 @@ public class HNFloatingMenu: UIView {
 
     private func showQuickMenu() {
         guard let topVC = getTopViewController() else { return }
-
-        let alert = UIAlertController(title: "NeuOSX", message: nil, preferredStyle: .actionSheet)
-        applyHarmonyOSFont(to: alert)
-
-        // 1. Chấm công & Ảnh
-        alert.addAction(menuAction(title: "⏰ Chấm Công Vào (Check-in)", style: .default) { [weak self] _ in
-            guard let top = self?.getTopViewController() else { return }
-            HNAttendanceHook.performAutomaticClock(clockType: 1) { success, msg in
-                let alertResult = UIAlertController(title: success ? "Thành Công ✅" : "Thất Bại ❌", message: msg, preferredStyle: .alert)
-                alertResult.addAction(UIAlertAction(title: "OK", style: .default))
-                top.present(alertResult, animated: true)
-            }
-        })
-
-        alert.addAction(menuAction(title: "⏰ Chấm Công Ra (Check-out)", style: .default) { [weak self] _ in
-            guard let top = self?.getTopViewController() else { return }
-            HNAttendanceHook.performAutomaticClock(clockType: 2) { success, msg in
-                let alertResult = UIAlertController(title: success ? "Thành Công ✅" : "Thất Bại ❌", message: msg, preferredStyle: .alert)
-                alertResult.addAction(UIAlertAction(title: "OK", style: .default))
-                top.present(alertResult, animated: true)
-            }
-        })
-
-        alert.addAction(menuAction(title: "👤 Chọn Ảnh Khuôn Mặt Chấm Công", style: .default) { [weak self] _ in
-            guard let top = self?.getTopViewController() else { return }
-            HNPickerHelper.showPicker(in: top) { image in
-                if let img = image {
-                    HNAttendanceHook.saveFacePhoto(img)
-                    let successAlert = UIAlertController(title: "Đã Lưu Ảnh ✅", message: "Ảnh khuôn mặt đã được cập nhật.", preferredStyle: .alert)
-                    successAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                    top.present(successAlert, animated: true)
-                } else {
-                    let errAlert = UIAlertController(title: "Chưa chọn ảnh", message: "Không có ảnh nào được chọn.", preferredStyle: .alert)
-                    errAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                    top.present(errAlert, animated: true)
-                }
-            }
-        })
-
-        // 2. STK & Call Log
-        alert.addAction(menuAction(title: "🛠️ Cấu Hình STK & Thanh Toán", style: .default) { [weak self] _ in
-            self?.showBankConfigDialog()
-        })
-
-        alert.addAction(menuAction(title: "🕒 Nhật Ký Cuộc Gọi Giả Lập", style: .default) { [weak self] _ in
-            self?.showFakeCallHistoryInputDialog()
-        })
-
-        // 3. Vị trí & GPS
-        let savedLocationTitle = locationMenuTitle()
-        alert.addAction(menuAction(title: "🎯 \(savedLocationTitle)", style: .default) { [weak self] _ in
-            guard let top = self?.getTopViewController() else { return }
-            HNLocationHook.shared.captureAndSaveCurrentLocation(from: top)
-        })
-
-        alert.addAction(menuAction(title: "📍 Nhập Tọa Độ Thủ Công", style: .default) { [weak self] _ in
-            self?.showManualCoordinateInput()
-        })
-
-        if let googleMapsURL = HNLocationHook.googleMapsURL {
-            alert.addAction(menuAction(title: "🗺️ Mở Google Maps", style: .default) { _ in
-                UIApplication.shared.open(googleMapsURL, options: [:], completionHandler: nil)
-            })
-        }
-
-        let fakeLocTitle = HNLocationHook.isFakeLocationEnabled ? "📍 Fake Location: Bật" : "📍 Fake Location: Tắt"
-        alert.addAction(menuAction(title: fakeLocTitle, style: .default) { [weak self] _ in
-            HNLocationHook.isFakeLocationEnabled.toggle()
-            self?.showQuickMenu()
-        })
-
-        // 4. Tiện ích & Giao diện
-        let fakeCallTitle = HNURLProtocol.isFakeCallEnabled ? "📞 Fake Call: Bật" : "📞 Fake Call: Tắt"
-        alert.addAction(menuAction(title: fakeCallTitle, style: .default) { [weak self] _ in
-            HNURLProtocol.isFakeCallEnabled.toggle()
-            self?.showQuickMenu()
-        })
-
-        alert.addAction(menuAction(title: "🎨 Giao Diện: \(HNThemeManager.mode.title)", style: .default) { [weak self] _ in
-            self?.showThemeMenu()
-        })
-
-        alert.addAction(menuAction(title: "❤️ Độ Mờ Icon Nổi (Blur)", style: .default) { [weak self] _ in
-            self?.showIconOpacityMenu()
-        })
-
-        alert.addAction(menuAction(title: "Huỷ Bỏ", style: .cancel))
-
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = self
-            popover.sourceRect = self.bounds
-        }
-
-        topVC.present(alert, animated: true)
+        let menu = HNQuickMenuViewController()
+        menu.modalPresentationStyle = .overFullScreen
+        topVC.present(menu, animated: true, completion: nil)
     }
 
-    private func showThemeMenu() {
-        guard let topVC = getTopViewController() else { return }
-        let alert = UIAlertController(title: "Giao diện", message: nil, preferredStyle: .actionSheet)
-        applyHarmonyOSFont(to: alert)
-
-        for mode in HNThemeMode.allCases {
-            let title = mode.title + (HNThemeManager.mode == mode ? " ✓" : "")
-            alert.addAction(menuAction(title: title, style: .default) { _ in
-                HNThemeManager.mode = mode
-            })
-        }
-        alert.addAction(menuAction(title: "Huỷ", style: .cancel))
-
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = self
-            popover.sourceRect = self.bounds
-        }
-        topVC.present(alert, animated: true)
-    }
-
-    private func showManualCoordinateInput() {
-        guard let topVC = getTopViewController() else { return }
+    @objc public func showManualCoordinateInputFrom(_ topVC: UIViewController) {
         let alert = UIAlertController(
-            title: "Nhập Tọa Độ",
-            message: "Dán toàn bộ tọa độ: 11°44'05.4\"N 108°21'41.0\"E",
+            title: "Manual Coordinates",
+            message: "Paste coordinates: 11°44'05.4\"N 108°21'41.0\"E",
             preferredStyle: .alert
         )
 
         alert.addTextField { field in
             field.placeholder = "11°44'05.4\"N 108°21'41.0\"E"
             field.keyboardType = .default
-            field.smartQuotesType = .no      // không tự đổi ' " thành ’ ”
+            field.smartQuotesType = .no
             field.smartDashesType = .no
             field.autocorrectionType = .no
             field.autocapitalizationType = .none
             field.spellCheckingType = .no
         }
 
-        let cancelAction = UIAlertAction(title: "Huỷ", style: .cancel)
-        let saveAction = UIAlertAction(title: "Lưu", style: .default) { _ in
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+        let saveAction = UIAlertAction(title: "Save", style: .default) { _ in
             guard let coordinateText = alert.textFields?.first?.text,
                   let coordinates = HNLocationHook.parseDMSCoordinates(coordinateText) else {
                 let errorAlert = UIAlertController(
-                    title: "Tọa Độ Không Hợp Lệ",
-                    message: "Vui lòng nhập đúng định dạng: 11°44'05.4\"N 108°21'41.0\"E",
+                    title: "Invalid Coordinates",
+                    message: "Please use format: 11°44'05.4\"N 108°21'41.0\"E",
                     preferredStyle: .alert
                 )
                 errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
@@ -338,7 +226,7 @@ public class HNFloatingMenu: UIView {
             HNLocationHook.savedLongitude = coordinates.longitude
 
             let successAlert = UIAlertController(
-                title: "Đã Lưu Tọa Độ ✅",
+                title: "Saved ✅",
                 message: String(format: "Latitude: %.6f\nLongitude: %.6f", coordinates.latitude, coordinates.longitude),
                 preferredStyle: .alert
             )
@@ -351,9 +239,28 @@ public class HNFloatingMenu: UIView {
         topVC.present(alert, animated: true)
     }
 
-    private func showIconOpacityMenu() {
-        guard let topVC = getTopViewController() else { return }
-        let alert = UIAlertController(title: "Blur Icon", message: nil, preferredStyle: .actionSheet)
+    @objc public func showThemeMenuFrom(_ topVC: UIViewController, completion: (() -> Void)? = nil) {
+        let alert = UIAlertController(title: "Theme Mode", message: nil, preferredStyle: .actionSheet)
+        applyHarmonyOSFont(to: alert)
+
+        for mode in HNThemeMode.allCases {
+            let title = mode.title + (HNThemeManager.mode == mode ? " ✓" : "")
+            alert.addAction(menuAction(title: title, style: .default) { _ in
+                HNThemeManager.mode = mode
+                completion?()
+            })
+        }
+        alert.addAction(menuAction(title: "Cancel", style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = self
+            popover.sourceRect = self.bounds
+        }
+        topVC.present(alert, animated: true)
+    }
+
+    @objc public func showIconOpacityMenuFrom(_ topVC: UIViewController) {
+        let alert = UIAlertController(title: "Icon Opacity", message: nil, preferredStyle: .actionSheet)
         applyHarmonyOSFont(to: alert)
 
         let options: [(title: String, opacity: Double)] = [
@@ -379,6 +286,10 @@ public class HNFloatingMenu: UIView {
             popover.sourceRect = self.bounds
         }
         topVC.present(alert, animated: true)
+    }
+
+    @objc public func getTopWindowController() -> UIViewController? {
+        return getTopViewController()
     }
 
     private func menuAction(
