@@ -120,25 +120,19 @@ public class HNFloatingMenu: UIView {
         }
     }
 
-    /// Chọn window "thật" của app: bỏ qua window bàn phím, alert, window bị ẩn...
     private func findTargetWindow() -> UIWindow? {
         let sceneWindows = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
 
-        let candidates = sceneWindows.filter { window in
-            !window.isHidden && window.windowLevel == .normal && window.rootViewController != nil
-        }
+        if let key = sceneWindows.first(where: { $0.isKeyWindow }) { return key }
+        if let visible = sceneWindows.first(where: { !$0.isHidden }) { return visible }
+        if let first = sceneWindows.first { return first }
 
-        if let key = candidates.first(where: { $0.isKeyWindow }) { return key }
-        if let last = candidates.last { return last }
-
-        // Fallback cho app không dùng UIScene
-        let legacy = UIApplication.shared.windows.filter { !$0.isHidden && $0.windowLevel == .normal }
-        return legacy.first(where: { $0.isKeyWindow })
-            ?? legacy.last
-            ?? sceneWindows.last
-            ?? UIApplication.shared.windows.last
+        let legacy = UIApplication.shared.windows
+        if let key = legacy.first(where: { $0.isKeyWindow }) { return key }
+        if let visible = legacy.first(where: { !$0.isHidden }) { return visible }
+        return legacy.first
     }
 
     private func doAttach() {
