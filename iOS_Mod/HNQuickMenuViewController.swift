@@ -48,21 +48,21 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
             containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            containerView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.8),
+            containerView.heightAnchor.constraint(equalToConstant: 520),
 
             titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
             titleLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
             scrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
             scrollView.bottomAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.bottomAnchor, constant: -16),
 
-            stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            stackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            stackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
         ])
 
         populateButtons()
@@ -80,14 +80,14 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
         btn.backgroundColor = UIColor.systemBackground
         btn.layer.cornerRadius = 12
         btn.contentHorizontalAlignment = .left
-        btn.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
 
         let actionWrapper = ActionWrapper(action: action)
         objc_setAssociatedObject(btn, "btnAction", actionWrapper, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         btn.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
 
         stackView.addArrangedSubview(btn)
-        btn.heightAnchor.constraint(equalToConstant: 46).isActive = true
+        btn.heightAnchor.constraint(equalToConstant: 44).isActive = true
     }
 
     @objc private func buttonTapped(_ sender: UIButton) {
@@ -103,7 +103,6 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
     }
 
     private func populateButtons() {
-        // 1. Attendance
         addButton(title: "⏰ Check-In") { [weak self] in
             guard let top = self else { return }
             HNAttendanceHook.performAutomaticClock(clockType: 1) { success, msg in
@@ -138,7 +137,6 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
             }
         }
 
-        // 2. STK & Call Log
         addButton(title: "🛠️ STK Config") { [weak self] in
             guard let top = self else { return }
             HNBankConfig.presentConfiguration(from: top)
@@ -149,7 +147,6 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
             HNFakeCallHistoryViewController.presentInputDialog(from: top)
         }
 
-        // 3. Location & GPS
         let savedLocTitle = HNLocationHook.savedLatitude != 0 ? "🎯 Save Location (Saved)" : "🎯 Save Location"
         addButton(title: savedLocTitle) { [weak self] in
             guard let top = self else { return }
@@ -173,7 +170,6 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
             self?.reloadMenu()
         }
 
-        // 4. Tools & Theme
         let fakeCallText = HNURLProtocol.isFakeCallEnabled ? "📞 Fake Call: ON" : "📞 Fake Call: OFF"
         addButton(title: fakeCallText) { [weak self] in
             HNURLProtocol.isFakeCallEnabled.toggle()
