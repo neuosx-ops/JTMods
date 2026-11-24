@@ -757,7 +757,12 @@ public class HNJTSheetHook: NSObject {
         let bankName = bankConfig.name.isEmpty ? "BIDV" : bankConfig.name
 
         // Làm tròn nghìn: từ 400đ lên (14.400 -> 15.000, 14.399 -> 14.000)
-        let total = HNVietQRBuilder.roundVND(validOrders.reduce(0) { $0 + HNVietQRBuilder.parseVND($1.amountText) })
+        let total = HNVietQRBuilder.roundVND(validOrders.reduce(0) { sum, item in
+            let amount = HNVietQRBuilder.parseVND(item.amountText)
+            let cached = workflow.cachedOrdersByWaybill[item.waybillNo]
+            let fee = HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0")
+            return sum + amount + fee
+        })
         guard total > 0, let bin = HNVietQRBuilder.bin(forBankName: bankName), let first = validOrders.first else {
             HNLog.write("Zalo QR: skip (total=\(total) bin=\(HNVietQRBuilder.bin(forBankName: bankName) ?? "nil") bank=\(bankName))")
             return nil
@@ -783,11 +788,14 @@ public class HNJTSheetHook: NSObject {
         var totalMoney: Int = 0
         var itemsText = ""
         for (index, order) in validOrders.enumerated() {
-            let m = HNVietQRBuilder.parseVND(order.amountText)
+            let amount = HNVietQRBuilder.parseVND(order.amountText)
+            let cached = workflow.cachedOrdersByWaybill[order.waybillNo]
+            let fee = HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0")
+            let m = amount + fee
             totalMoney += m
             let formattedM = NumberFormatter.localizedString(from: NSNumber(value: m), number: .decimal)
             let goodsStr = order.goodsName.isEmpty ? "" : " - \(order.goodsName)"
-            itemsText += " \(index + 1) Đơn \(order.waybillNo)\(goodsStr)\n"
+            itemsText += " \(index + 1) Đơn \(order.waybillNo) (\(formattedM) đ)\(goodsStr)\n"
         }
 
         totalMoney = HNVietQRBuilder.roundVND(totalMoney)

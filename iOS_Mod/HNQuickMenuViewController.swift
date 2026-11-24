@@ -121,18 +121,19 @@ public class HNQuickMenuViewController: UIViewController, UIGestureRecognizerDel
             }
         }
 
-        addButton(title: "👤 Face Photo") { [weak self] in
-            guard let top = self else { return }
-            HNPickerHelper.showPicker(in: top) { image in
-                if let img = image {
-                    HNAttendanceHook.saveFacePhoto(img)
-                    let successAlert = UIAlertController(title: "Saved ✅", message: "Face photo updated.", preferredStyle: .alert)
-                    successAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                    top.present(successAlert, animated: true)
-                } else {
-                    let errAlert = UIAlertController(title: "Error", message: "No image selected.", preferredStyle: .alert)
-                    errAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                    top.present(errAlert, animated: true)
+        addButton(title: "👤 Face Photo") {
+            if let top = HNFloatingMenu.shared.getTopWindowController() {
+                HNPickerHelper.showPicker(in: top) { image in
+                    if let img = image {
+                        HNAttendanceHook.saveFacePhoto(img)
+                        let successAlert = UIAlertController(title: "Saved ✅", message: "Face photo updated.", preferredStyle: .alert)
+                        successAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                        top.present(successAlert, animated: true)
+                    } else {
+                        let errAlert = UIAlertController(title: "Error", message: "No image selected.", preferredStyle: .alert)
+                        errAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                        top.present(errAlert, animated: true)
+                    }
                 }
             }
         }

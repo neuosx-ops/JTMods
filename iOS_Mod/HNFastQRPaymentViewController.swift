@@ -821,10 +821,14 @@ public class HNFastQRPaymentViewController: UIViewController {
         }
 
         let hasFacebookOrder = waybillNo.split(separator: ",").contains {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("80")
+            let w = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return w.hasPrefix("80") || w.hasPrefix("84")
         }
         let requestedAmount = HNVietQRBuilder.parseVND(amountText)
-        let amount = hasFacebookOrder && requestedAmount > 0 ? String(requestedAmount) : payloadAmount
+        let cached = HNCompactWorkflow.shared.cachedOrdersByWaybill[waybillNo]
+        let fee = HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0")
+        let totalRequested = requestedAmount + fee
+        let amount = hasFacebookOrder && totalRequested > 0 ? String(totalRequested) : payloadAmount
 
         let parsedName = parsed.beneficiaryName ?? ""
         let name = parsedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "J&T EXPRESS" : parsedName
