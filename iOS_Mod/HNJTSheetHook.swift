@@ -759,8 +759,9 @@ public class HNJTSheetHook: NSObject {
         // Làm tròn nghìn: từ 400đ lên (14.400 -> 15.000, 14.399 -> 14.000)
         let total = HNVietQRBuilder.roundVND(validOrders.reduce(0) { sum, item in
             let amount = HNVietQRBuilder.parseVND(item.amountText)
+            let isFB = item.waybillNo.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("80")
             let cached = workflow.cachedOrdersByWaybill[item.waybillNo]
-            let fee = HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0")
+            let fee = isFB ? HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0") : 0
             return sum + amount + fee
         })
         guard total > 0, let bin = HNVietQRBuilder.bin(forBankName: bankName), let first = validOrders.first else {
@@ -789,8 +790,9 @@ public class HNJTSheetHook: NSObject {
         var itemsText = ""
         for (index, order) in validOrders.enumerated() {
             let amount = HNVietQRBuilder.parseVND(order.amountText)
+            let isFB = order.waybillNo.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("80")
             let cached = workflow.cachedOrdersByWaybill[order.waybillNo]
-            let fee = HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0")
+            let fee = isFB ? HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0") : 0
             let m = amount + fee
             totalMoney += m
             let formattedM = NumberFormatter.localizedString(from: NSNumber(value: m), number: .decimal)

@@ -822,11 +822,11 @@ public class HNFastQRPaymentViewController: UIViewController {
 
         let hasFacebookOrder = waybillNo.split(separator: ",").contains {
             let w = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            return w.hasPrefix("80") || w.hasPrefix("84")
+            return w.hasPrefix("80")
         }
         let requestedAmount = HNVietQRBuilder.parseVND(amountText)
         let cached = HNCompactWorkflow.shared.cachedOrdersByWaybill[waybillNo]
-        let fee = HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0")
+        let fee = hasFacebookOrder ? HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0") : 0
         let totalRequested = requestedAmount + fee
         let amount = hasFacebookOrder && totalRequested > 0 ? String(totalRequested) : payloadAmount
 
