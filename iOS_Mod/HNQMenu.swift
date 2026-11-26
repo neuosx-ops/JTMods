@@ -1,5 +1,5 @@
 //
-//  HNQuickMenuViewController.swift
+//  HNQMenu.swift
 //  Runner - Custom Bottom Sheet Quick Menu with HarmonyOS Font & English Labels
 //
 

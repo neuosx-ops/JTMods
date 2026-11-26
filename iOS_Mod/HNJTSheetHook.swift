@@ -16,18 +16,25 @@ private enum HNZaloQRRetryCache {
     static func save(image: UIImage, phone: String, waybillNo: String, amount: Int) {
         let cleanWaybill = waybillNo.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPhone = normalizedPhone(phone)
-        guard !cleanWaybill.isEmpty, !cleanPhone.isEmpty, let imageData = image.pngData() else {
+        guard !cleanWaybill.isEmpty, !cleanPhone.isEmpty else {
             UserDefaults.standard.removeObject(forKey: defaultsKey)
             HNLog.write("Zalo QR retry: không lưu được ảnh hoặc mã vận đơn rỗng")
             return
         }
 
-        UserDefaults.standard.set([
-            "phone": cleanPhone,
-            "waybillNo": cleanWaybill,
-            "amount": amount,
-            "image": imageData
-        ], forKey: defaultsKey)
+        DispatchQueue.global(qos: .utility).async {
+            guard let imageData = image.pngData() else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                HNLog.write("Zalo QR retry: không mã hóa được PNG")
+                return
+            }
+            UserDefaults.standard.set([
+                "phone": cleanPhone,
+                "waybillNo": cleanWaybill,
+                "amount": amount,
+                "image": imageData
+            ], forKey: defaultsKey)
+        }
     }
 
     static func entry(forWaybill waybillNo: String, phone: String) -> Entry? {
@@ -104,7 +111,7 @@ private final class HNJTSheetTTFastTarget: NSObject {
                 if !order.waybillId.isEmpty {
                     ordersToPay.append((
                         waybillNo: order.waybillId,
-                        amountText: workflow.customerPayAmountText(forWaybill: order.waybillId, amountText: order.codAmount)
+                        amountText: order.codAmount
                     ))
                 }
             }
@@ -123,7 +130,7 @@ private final class HNJTSheetTTFastTarget: NSObject {
                 }
                 ordersToPay.append((
                     waybillNo: waybill,
-                    amountText: workflow.customerPayAmountText(forWaybill: waybill, amountText: amount)
+                    amountText: amount
                 ))
             }
         }
@@ -201,13 +208,7 @@ private final class HNJTSheetTTFastTarget: NSObject {
                             let qrVC = HNFastQRPaymentViewController()
                             qrVC.payData = payData
                             qrVC.waybillNo = waybillDisplayStr
-                            let includesFacebookOrder = ordersToPay.contains { $0.waybillNo.hasPrefix("80") }
-                            let requestedTotal = ordersToPay.reduce(0) {
-                                $0 + HNVietQRBuilder.parseVND($1.amountText)
-                            }
-                            qrVC.amountText = includesFacebookOrder && requestedTotal > 0
-                                ? String(requestedTotal)
-                                : "\(payData.totalMoney)"
+                            qrVC.amountText = "\(payData.totalMoney)"
                             qrVC.receiverName = cellName.isEmpty ? workflow.currentReceiverName : cellName
                             qrVC.modalPresentationStyle = .fullScreen
                             topVC.present(qrVC, animated: true)
@@ -475,9 +476,22 @@ private final class HNJTSheetHNFlashTarget: NSObject {
 
     @objc func runHNFlashFlow() {
         guard let sheet = sheet else { return }
+        let workflow = HNCompactWorkflow.shared
+
+        // Lấy thông tin đơn & khởi chạy giải mã SĐT ngay lập tức (song song với hiệu ứng đóng sheet / mở chi tiết)
+        let prewarmPresenter = sheet.presentingViewController ?? UIApplication.shared.topViewController() ?? sheet
+        if let prewarmView = HNJTSheetHook.findTargetCellOrCardView(for: sheet, in: prewarmPresenter) {
+            let (pName, pMasked, _, pWaybill) = HNJTSheetHook.extractCellOrderDetails(from: prewarmView)
+            let pTexts = HNJTSheetHook.extractAllVisibleTexts(in: prewarmView)
+            let pCached = workflow.findCachedOrder(maskedPhone: pMasked, name: pName, textInViews: pTexts)
+            let pWb = (pCached?.waybillId.isEmpty == false) ? pCached!.waybillId : pWaybill
+            let pEnc = pCached?.encPhone ?? ""
+            if !pWb.isEmpty || !pEnc.isEmpty {
+                workflow.resolveFullReceiverPhone(waybillNo: pWb, encPhone: pEnc) { _ in }
+            }
+        }
 
         let performFlash = {
-            let workflow = HNCompactWorkflow.shared
             workflow.resetState()
             let presenter = sheet.presentingViewController ?? UIApplication.shared.topViewController() ?? sheet
 
@@ -509,6 +523,10 @@ private final class HNJTSheetHNFlashTarget: NSObject {
                 workflow.currentCodAmount = targetCodAmount
             }
 
+            if !waybillNo.isEmpty || !encPhone.isEmpty {
+                workflow.resolveFullReceiverPhone(waybillNo: waybillNo, encPhone: encPhone) { _ in }
+            }
+
             HNJTSheetHook.pinOrderInCell(targetView, waybillNo: waybillNo)
 
             // Các đơn chưa ký của cùng khách (để Zalo gộp 1 QR cho tất cả); lọc chính xác theo SĐT đầy đủ đã giải mã
@@ -525,7 +543,7 @@ private final class HNJTSheetHNFlashTarget: NSObject {
                         maskedPhone: cellMaskedPhone,
                         encPhone: "",
                         codAmount: cachedTarget?.codAmount ?? workflow.currentCodAmount,
-                        taxAfterFee: cachedTarget?.taxAfterFee ?? "0",
+                        taxAfterFee: "0",
                         goodsName: cachedTarget?.goodsName ?? "",
                         isSigned: false
                     ))
@@ -546,7 +564,7 @@ private final class HNJTSheetHNFlashTarget: NSObject {
                     HNLog.write("HNFlash: waybill=\(waybillNo.isEmpty ? "EMPTY" : waybillNo) encPhone=\(encPhone.isEmpty ? "no" : "yes") masked=\(cellMaskedPhone) amount=\(workflow.currentCodAmount)")
 
                     workflow.resolveFullReceiverPhone(waybillNo: waybillNo, encPhone: encPhone) { fullPhone in
-                        DispatchQueue.main.async {
+                        let runOnMain = {
                             HNLog.write("HNFlash: resolveFullReceiverPhone -> \(fullPhone == nil ? "nil" : "ok")")
                             let resolvedPhone = (fullPhone != nil && !fullPhone!.contains("*")) ? fullPhone! : workflow.currentPhoneNumber
 
@@ -572,6 +590,11 @@ private final class HNJTSheetHNFlashTarget: NSObject {
                                     }
                                 }
                             }
+                        }
+                        if Thread.isMainThread {
+                            runOnMain()
+                        } else {
+                            DispatchQueue.main.async(execute: runOnMain)
                         }
                     }
                 }
@@ -742,9 +765,17 @@ public class HNJTSheetHook: NSObject {
         sheet.view.setNeedsLayout()
     }
 
-    /// Ảnh QR (VietQR/napas247) của tài khoản trong cài đặt, tổng tiền = cộng chính xác các đơn.
-    /// nil nếu không xác định được mã ngân hàng, QR hoặc tổng tiền (caller sẽ báo lỗi).
-    public static func buildZaloQRImage(for orders: [(waybillNo: String, amountText: String, goodsName: String)], bankConfig: (name: String, account: String, owner: String)) -> UIImage? {
+    private struct PreparedZaloQRData {
+        let totalAmount: Int
+        let bankName: String
+        let account: String
+        let owner: String
+        let content: String
+        let emv: String
+        let orderLines: [(waybill: String, goods: String)]
+    }
+
+    private static func prepareZaloQRData(for orders: [(waybillNo: String, amountText: String, goodsName: String)], bankConfig: (name: String, account: String, owner: String)) -> PreparedZaloQRData? {
         let workflow = HNCompactWorkflow.shared
         let validOrders = orders.filter { item in
             let wNo = item.waybillNo.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -757,13 +788,7 @@ public class HNJTSheetHook: NSObject {
         let bankName = bankConfig.name.isEmpty ? "BIDV" : bankConfig.name
 
         // Làm tròn nghìn: từ 400đ lên (14.400 -> 15.000, 14.399 -> 14.000)
-        let total = HNVietQRBuilder.roundVND(validOrders.reduce(0) { sum, item in
-            let amount = HNVietQRBuilder.parseVND(item.amountText)
-            let isFB = item.waybillNo.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("80")
-            let cached = workflow.cachedOrdersByWaybill[item.waybillNo]
-            let fee = isFB ? HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0") : 0
-            return sum + amount + fee
-        })
+        let total = HNVietQRBuilder.roundVND(validOrders.reduce(0) { $0 + HNVietQRBuilder.parseVND($1.amountText) })
         guard total > 0, let bin = HNVietQRBuilder.bin(forBankName: bankName), let first = validOrders.first else {
             HNLog.write("Zalo QR: skip (total=\(total) bin=\(HNVietQRBuilder.bin(forBankName: bankName) ?? "nil") bank=\(bankName))")
             return nil
@@ -771,11 +796,38 @@ public class HNJTSheetHook: NSObject {
 
         let content = validOrders.count == 1 ? first.waybillNo : "\(first.waybillNo) \(validOrders.count) don"
         let emv = HNVietQRBuilder.payload(bin: bin, account: account, amount: total, content: content)
-        guard let qr = HNVietQRBuilder.qrImage(from: emv) else { return nil }
         HNLog.write("Zalo QR: amount=\(total) bin=\(bin) payload=\(emv)")
 
         let orderLines = validOrders.map { (waybill: $0.waybillNo, goods: $0.goodsName) }
-        return HNVietQRBuilder.billImage(qr: qr, amount: total, bankName: bankName, account: account, owner: owner, content: content, orders: orderLines)
+        return PreparedZaloQRData(
+            totalAmount: total,
+            bankName: bankName,
+            account: account,
+            owner: owner,
+            content: content,
+            emv: emv,
+            orderLines: orderLines
+        )
+    }
+
+    private static func renderZaloQRBill(_ data: PreparedZaloQRData) -> UIImage? {
+        guard let qr = HNVietQRBuilder.qrImage(from: data.emv) else { return nil }
+        return HNVietQRBuilder.billImage(
+            qr: qr,
+            amount: data.totalAmount,
+            bankName: data.bankName,
+            account: data.account,
+            owner: data.owner,
+            content: data.content,
+            orders: data.orderLines
+        )
+    }
+
+    /// Ảnh QR (VietQR/napas247) của tài khoản trong cài đặt, tổng tiền = cộng chính xác các đơn.
+    /// nil nếu không xác định được mã ngân hàng, QR hoặc tổng tiền (caller sẽ báo lỗi).
+    public static func buildZaloQRImage(for orders: [(waybillNo: String, amountText: String, goodsName: String)], bankConfig: (name: String, account: String, owner: String)) -> UIImage? {
+        guard let prepared = prepareZaloQRData(for: orders, bankConfig: bankConfig) else { return nil }
+        return renderZaloQRBill(prepared)
     }
 
     public static func buildZaloMessage(for orders: [(waybillNo: String, amountText: String, goodsName: String)], bankConfig: (name: String, account: String, owner: String)) -> String {
@@ -789,11 +841,7 @@ public class HNJTSheetHook: NSObject {
         var totalMoney: Int = 0
         var itemsText = ""
         for (index, order) in validOrders.enumerated() {
-            let amount = HNVietQRBuilder.parseVND(order.amountText)
-            let isFB = order.waybillNo.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("80")
-            let cached = workflow.cachedOrdersByWaybill[order.waybillNo]
-            let fee = isFB ? HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0") : 0
-            let m = amount + fee
+            let m = HNVietQRBuilder.parseVND(order.amountText)
             totalMoney += m
             let formattedM = NumberFormatter.localizedString(from: NSNumber(value: m), number: .decimal)
             let goodsStr = order.goodsName.isEmpty ? "" : " - \(order.goodsName)"
@@ -923,10 +971,25 @@ public class HNJTSheetHook: NSObject {
             return nil
         }
 
+        func waitForDetailPush(before: UIViewController?, polls: Int, retriesRemaining: Int) {
+            let after = UIApplication.shared.topViewController()
+            if after !== before {
+                verifyDetail(polls: 0, retriesRemaining: retriesRemaining)
+                return
+            }
+            if polls < 5 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    waitForDetailPush(before: before, polls: polls + 1, retriesRemaining: retriesRemaining)
+                }
+            } else if retriesRemaining > 0 {
+                openAttempt(useSignButton: false, retriesRemaining: retriesRemaining - 1)
+            }
+        }
+
         func openAttempt(useSignButton: Bool, retriesRemaining: Int) {
             guard let target = matchingCell() else {
                 guard retriesRemaining > 0 else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     openAttempt(useSignButton: useSignButton, retriesRemaining: retriesRemaining - 1)
                 }
                 return
@@ -941,13 +1004,8 @@ public class HNJTSheetHook: NSObject {
                 navigateToOrderDetail(for: target, in: presenter)
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                let after = UIApplication.shared.topViewController()
-                if after !== before {
-                    verifyDetail(polls: 0, retriesRemaining: retriesRemaining)
-                } else if retriesRemaining > 0 {
-                    openAttempt(useSignButton: false, retriesRemaining: retriesRemaining - 1)
-                }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                waitForDetailPush(before: before, polls: 0, retriesRemaining: retriesRemaining)
             }
         }
 
@@ -955,7 +1013,7 @@ public class HNJTSheetHook: NSObject {
             let vc = UIApplication.shared.topViewController()
             if let vc, String(describing: type(of: vc)).contains("DeliveryProxySignEditorViewController") {
                 dismissUnneededRelationPopupIfPresented {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                         verifyDetail(polls: 0, retriesRemaining: retriesRemaining)
                     }
                 }
@@ -964,8 +1022,8 @@ public class HNJTSheetHook: NSObject {
 
             let verdict = detailMatches(vc: vc, maskedPhone: maskedPhone, name: name, waybillNo: waybillNo)
 
-            if verdict == nil && polls < 5 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if verdict == nil && polls < 8 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                     verifyDetail(polls: polls + 1, retriesRemaining: retriesRemaining)
                 }
                 return
@@ -974,13 +1032,13 @@ public class HNJTSheetHook: NSObject {
             if verdict == false {
                 goBack(from: vc)
                 guard retriesRemaining > 0 else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     openAttempt(useSignButton: true, retriesRemaining: retriesRemaining - 1)
                 }
                 return
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { completion() }
+            completion()
         }
 
         func goBack(from vc: UIViewController?) {
@@ -992,7 +1050,7 @@ public class HNJTSheetHook: NSObject {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { openAttempt(useSignButton: true, retriesRemaining: 1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { openAttempt(useSignButton: true, retriesRemaining: 1) }
     }
 
     /// Chỉ số hàng hiện tại của một thẻ trong UITableView / UICollectionView (nil nếu không xác định được).
@@ -1275,13 +1333,13 @@ public class HNJTSheetHook: NSObject {
                 return
             }
             attempts += 1
-            if attempts < 8 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { attempt() }
+            if attempts < 15 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { attempt() }
             } else {
                 completion(false)
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { attempt() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { attempt() }
     }
 
     /// Theo dõi màn hình chụp ảnh đến khi đóng và chạy tiếp luồng sau khi lưu.
@@ -1293,7 +1351,7 @@ public class HNJTSheetHook: NSObject {
         func tick() {
             guard token == signFlowToken else { return }
             ticks += 1
-            guard ticks <= 1200 else { return }
+            guard ticks <= 2500 else { return }
 
             let top = UIApplication.shared.topViewController()
             let topName = top.map { String(describing: type(of: $0)) } ?? "<none>"
@@ -1325,9 +1383,9 @@ public class HNJTSheetHook: NSObject {
                 }
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { tick() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { tick() }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { tick() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { tick() }
     }
 
     public static func findTargetCellOrCardView(for sheet: UIViewController, in presenter: UIViewController) -> UIView? {
@@ -1817,7 +1875,7 @@ private final class HNZaloReturnWatcher {
             guard let self = self, self.wentBackground else { return }
             let callback = self.onReturn
             self.stop()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: callback)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: callback)
         })
         // Mở Zalo thất bại (app không bao giờ xuống nền) -> dọn observer
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
@@ -1967,29 +2025,6 @@ extension HNJTSheetHook {
 
         let list = orders.filter { workflow.cachedSignedStatus(forWaybill: $0.waybillNo) != true }
 
-        let qrBillImage: UIImage
-        let totalAmount: Int
-        if let existingQR = existingQR {
-            qrBillImage = existingQR
-            totalAmount = existingAmount ?? 0
-        } else {
-            guard !list.isEmpty else {
-                showZaloSendError("Không tìm thấy đơn COD chưa ký để tạo QR.")
-                return
-            }
-
-            let bankConfig = (name: HNBankConfig.bankName, account: HNBankConfig.accountNumber, owner: HNBankConfig.accountName)
-            totalAmount = HNVietQRBuilder.roundVND(list.reduce(0) { $0 + HNVietQRBuilder.parseVND($1.amountText) })
-            guard let generatedQR = buildZaloQRImage(for: list, bankConfig: bankConfig) else {
-                HNLog.write("Zalo QR: không tạo được ảnh (amount=\(totalAmount), bank=\(bankConfig.name))")
-                showZaloSendError("Không tạo được ảnh QR. Kiểm tra ngân hàng, số tài khoản và COD của các đơn chưa ký.")
-                return
-            }
-            qrBillImage = generatedQR
-            HNZaloQRRetryCache.save(image: generatedQR, phone: phone, waybillNo: waybillNo, amount: totalAmount)
-        }
-        UIPasteboard.general.image = qrBillImage
-
         var cleanPhone = phone.filter(\.isNumber)
         if cleanPhone.hasPrefix("84") {
             cleanPhone = "0" + String(cleanPhone.dropFirst(2))
@@ -1999,14 +2034,6 @@ extension HNJTSheetHook {
 
         // Để lúc quay lại app Ký nhận đúng đơn đang mở (SĐT gốc đã được giữ ở dispatchZaloOrSMS)
         if !waybillNo.isEmpty { workflow.currentBarCodeListStr = waybillNo }
-
-        let copiedWhat = "ảnh QR \(HNVietQRBuilder.formatVND(totalAmount)) đ"
-
-        // Copy the generated payment QR image.
-        let copyQR: () -> Void = {
-            UIPasteboard.general.image = qrBillImage
-            showToast(message: "Đã copy \(copiedWhat). Đang mở khách trong Zalo; ảnh sẽ tự dán khi vào chat.", in: (UIApplication.shared.topViewController() ?? vc).view)
-        }
 
         // Mở Zalo; khi quay lại app thì gọi onReturn
         let openZalo: (@escaping () -> Void) -> Void = { onReturn in
@@ -2033,10 +2060,61 @@ extension HNJTSheetHook {
             }
         }
 
-        if existingQR != nil {
-            copyQR()
+        if let existingQR = existingQR {
+            let copiedWhat = "ảnh QR \(HNVietQRBuilder.formatVND(existingAmount ?? 0)) đ"
+            UIPasteboard.general.image = existingQR
+            showToast(message: "Đã copy \(copiedWhat). Đang mở khách trong Zalo; ảnh sẽ tự dán khi vào chat.", in: (UIApplication.shared.topViewController() ?? vc).view)
             openZalo({})
             return
+        }
+
+        guard !list.isEmpty else {
+            showZaloSendError("Không tìm thấy đơn COD chưa ký để tạo QR.")
+            return
+        }
+
+        let bankConfig = (name: HNBankConfig.bankName, account: HNBankConfig.accountNumber, owner: HNBankConfig.accountName)
+        guard let prepared = prepareZaloQRData(for: list, bankConfig: bankConfig) else {
+            showZaloSendError("Không tạo được ảnh QR. Kiểm tra ngân hàng, số tài khoản và COD của các đơn chưa ký.")
+            return
+        }
+
+        let totalAmount = prepared.totalAmount
+        let copiedWhat = "ảnh QR \(HNVietQRBuilder.formatVND(totalAmount)) đ"
+
+        // Dựng ảnh QR + lưu cache ở background song song với việc mở camera (tránh block main thread)
+        let qrGroup = DispatchGroup()
+        var renderedQR: UIImage?
+        qrGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let img = renderZaloQRBill(prepared) {
+                renderedQR = img
+                HNZaloQRRetryCache.save(image: img, phone: phone, waybillNo: waybillNo, amount: totalAmount)
+            }
+            qrGroup.leave()
+        }
+
+        let deliverQRAndOpenZalo: (Bool, @escaping () -> Void) -> Void = { shouldMarkSigned, onReturn in
+            let finishWithImage: () -> Void = {
+                guard let qrBillImage = renderedQR else {
+                    HNLog.write("Zalo QR: không tạo được ảnh (amount=\(totalAmount), bank=\(bankConfig.name))")
+                    showZaloSendError("Không tạo được ảnh QR. Kiểm tra ngân hàng, số tài khoản và COD của các đơn chưa ký.")
+                    return
+                }
+                UIPasteboard.general.image = qrBillImage
+                showToast(message: "Đã copy \(copiedWhat). Đang mở khách trong Zalo; ảnh sẽ tự dán khi vào chat.", in: (UIApplication.shared.topViewController() ?? vc).view)
+                if shouldMarkSigned {
+                    // Mark signed only after the QR image has been copied.
+                    workflow.didSign(waybills: [waybillNo], recheck: list.map { $0.waybillNo })
+                }
+                openZalo(onReturn)
+            }
+
+            if qrGroup.wait(timeout: .now()) == .success {
+                finishWithImage()
+            } else {
+                qrGroup.notify(queue: .main, execute: finishWithImage)
+            }
         }
 
         // Luồng mới: Chi tiết -> Mở Chụp Ảnh -> Save -> Copy QR -> Zalo -> quay lại app thì tự về Danh sách
@@ -2046,14 +2124,10 @@ extension HNJTSheetHook {
         let host = UIApplication.shared.topViewController() ?? vc
         HNJTSheetHook.tapSignButtonAndWatch(from: host, completion: { found in
             guard !found else { return }
-            copyQR()
-            openZalo({})
+            deliverQRAndOpenZalo(false, {})
         }, onSaved: { detail in
             weak var weakDetail: UIViewController? = detail
-            copyQR()
-            // Mark signed only after the QR image has been copied.
-            workflow.didSign(waybills: [waybillNo], recheck: list.map { $0.waybillNo })
-            openZalo {
+            deliverQRAndOpenZalo(true) {
                 guard let d = weakDetail else { return }
                 if let nav = d.navigationController {
                     nav.popToRootViewController(animated: true)

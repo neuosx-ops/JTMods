@@ -1,5 +1,5 @@
 //
-//  HNFastQRPaymentViewController.swift
+//  HNFQRPay.swift
 //  iOS_Mod - Fast COD transfer screen
 //
 //  Parses the original J&T EMV/VietQR payload and opens an autofill-capable
@@ -469,12 +469,14 @@ enum HNVietQRBuilder {
         })?.bin
     }
 
+    private static let sharedCIContext = CIContext(options: [.useSoftwareRenderer: false])
+
     static func qrImage(from string: String, scale: CGFloat = 10) -> UIImage? {
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         filter.setValue(string.data(using: .utf8), forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
         guard let ci = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: scale, y: scale)),
-              let cg = CIContext().createCGImage(ci, from: ci.extent) else { return nil }
+              let cg = sharedCIContext.createCGImage(ci, from: ci.extent) else { return nil }
         return UIImage(cgImage: cg)
     }
 
@@ -820,15 +822,7 @@ public class HNFastQRPaymentViewController: UIViewController {
             return
         }
 
-        let hasFacebookOrder = waybillNo.split(separator: ",").contains {
-            let w = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            return w.hasPrefix("80")
-        }
-        let requestedAmount = HNVietQRBuilder.parseVND(amountText)
-        let cached = HNCompactWorkflow.shared.cachedOrdersByWaybill[waybillNo]
-        let fee = hasFacebookOrder ? HNVietQRBuilder.parseVND(cached?.taxAfterFee ?? "0") : 0
-        let totalRequested = requestedAmount + fee
-        let amount = hasFacebookOrder && totalRequested > 0 ? String(totalRequested) : payloadAmount
+        let amount = payloadAmount
 
         let parsedName = parsed.beneficiaryName ?? ""
         let name = parsedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "J&T EXPRESS" : parsedName

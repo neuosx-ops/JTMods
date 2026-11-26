@@ -123,6 +123,7 @@ public class HNCompactWorkflow: NSObject, MFMessageComposeViewControllerDelegate
     public var cachedOrdersByName: [String: [CachedOrderInfo]] = [:]
     public var cachedOrdersByComboKey: [String: [CachedOrderInfo]] = [:]
     public var cachedDecryptedPhones: [String: String] = [:]
+    private var inFlightPhoneResolves: [String: [(String?) -> Void]] = [:]
 
     /// Đơn vừa ký nhận trên máy này (server có thể trễ vài giây, danh sách cũ không có đơn đã ký nên cache không tự biết).
     private var locallySigned: [String: Date] = [:]
@@ -283,18 +284,7 @@ public class HNCompactWorkflow: NSObject, MFMessageComposeViewControllerDelegate
     }
 
     public func customerPayAmountText(forWaybill waybillId: String, amountText: String) -> String {
-        guard waybillId.hasPrefix("80"),
-              let order = cachedOrderInfo(forWaybill: waybillId) else {
-            return amountText
-        }
-
-        let amount = HNVietQRBuilder.parseVND(amountText)
-        let fee = HNVietQRBuilder.parseVND(order.taxAfterFee)
-        guard amount > 0, fee > 0 else { return amountText }
-
-        let total = amount + fee
-        HNLog.write("TTFast: Facebook order \(waybillId) amount=\(amount) taxAfterFee=\(fee) total=\(total)")
-        return String(total)
+        return amountText
     }
 
     public func cachedSignedStatus(forWaybill waybillId: String) -> Bool? {
@@ -587,21 +577,44 @@ public class HNCompactWorkflow: NSObject, MFMessageComposeViewControllerDelegate
 
     /// Real-time resolve masked receiver number via J&T encryptionReverseCheckNew API
     @objc public func resolveFullReceiverPhone(waybillNo: String, encPhone: String = "", completion: @escaping (String?) -> Void) {
+        let inflightKey: String? = !waybillNo.isEmpty ? "wb:\(waybillNo)" : (!encPhone.isEmpty ? "enc:\(encPhone)" : nil)
+
         cachedOrdersLock.lock()
         if !waybillNo.isEmpty, let decPhone = cachedDecryptedPhones[waybillNo], !decPhone.contains("*") {
             cachedOrdersLock.unlock()
             completion(decPhone)
             return
         }
+        if let key = inflightKey {
+            if var waiters = inFlightPhoneResolves[key] {
+                waiters.append(completion)
+                inFlightPhoneResolves[key] = waiters
+                cachedOrdersLock.unlock()
+                return
+            }
+            inFlightPhoneResolves[key] = [completion]
+        }
         cachedOrdersLock.unlock()
 
+        func finishResolve(_ phone: String?) {
+            guard let key = inflightKey else {
+                completion(phone)
+                return
+            }
+            cachedOrdersLock.lock()
+            let waiters = inFlightPhoneResolves.removeValue(forKey: key) ?? []
+            cachedOrdersLock.unlock()
+            waiters.forEach { $0(phone) }
+        }
+
         guard let url = URL(string: "https://bc.jtexpress.vn/bc/baseData/encryptionReverseCheckNew") else {
-            completion(nil)
+            finishResolve(nil)
             return
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 6.0
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json;charset=UTF-8", forHTTPHeaderField: "Content-Type")
         request.setValue("Internal Deliver", forHTTPHeaderField: "App-Channel")
@@ -628,7 +641,7 @@ public class HNCompactWorkflow: NSObject, MFMessageComposeViewControllerDelegate
         }
 
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            completion(nil)
+            finishResolve(nil)
             return
         }
         request.httpBody = bodyData
@@ -654,7 +667,7 @@ public class HNCompactWorkflow: NSObject, MFMessageComposeViewControllerDelegate
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 let bodyPreview = data.flatMap { String(data: $0, encoding: .utf8) }.map { String($0.prefix(200)) } ?? "nil"
                 HNLog.write("HNFlash: encryptionReverseCheckNew thất bại status=\(status) error=\(error?.localizedDescription ?? "nil") body=\(bodyPreview)")
-                completion(nil)
+                finishResolve(nil)
                 return
             }
 
@@ -662,7 +675,7 @@ public class HNCompactWorkflow: NSObject, MFMessageComposeViewControllerDelegate
             if !waybillNo.isEmpty {
                 self.registerDecryptedPhone(waybillId: waybillNo, phone: cleanPhone)
             }
-            completion(cleanPhone)
+            finishResolve(cleanPhone)
         }.resume()
     }
 
